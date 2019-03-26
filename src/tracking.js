@@ -223,14 +223,18 @@
    * @param {object} opt_options Optional configuration to the tracker.
    * @private
    */
-  tracking.trackVideo_ = function(element, tracker) {
+  tracking.trackVideo_ = function(element, tracker, options) {
     var canvas = document.createElement('canvas');
     var context = canvas.getContext('2d');
     var width;
     var height;
 
+    options = options || {}
+    options.fps = options.fps || 30
 
-// FIXME here the video display size of the analysed size
+    var fpsInterval, now, then, elapsed;
+
+    // FIXME here the video display size of the analysed size
     var resizeCanvas_ = function() {
       width = element.offsetWidth;
       height = element.offsetHeight;
@@ -241,23 +245,35 @@
     element.addEventListener('resize', resizeCanvas_);
 
 
-// FIXME: do a process function - it is up to the caller to handle the frequency of detection
-// it seems all handled in the tracking.TrackerTask..
-// so in short, remove the tracking.TrackerTask from here
-// if the user want to use it, it can create it himself
+    // FIXME: do a process function - it is up to the caller to handle the frequency of detection
+    // it seems all handled in the tracking.TrackerTask..
+    // so in short, remove the tracking.TrackerTask from here
+    // if the user want to use it, it can create it himself
     var requestId;
     var requestAnimationFrame_ = function() {
       requestId = window.requestAnimationFrame(function() {
-        if (element.readyState === element.HAVE_ENOUGH_DATA) {
-          try {
-            // Firefox v~30.0 gets confused with the video readyState firing an
-            // erroneous HAVE_ENOUGH_DATA just before HAVE_CURRENT_DATA state,
-            // hence keep trying to read it until resolved.
-            context.drawImage(element, 0, 0, width, height);
-          } catch (err) {}
-          tracking.trackCanvasInternal_(canvas, tracker);
-        }
         requestAnimationFrame_();
+
+        // calc elapsed time since last loop
+        now = Date.now();
+        elapsed = now - then;
+
+        // if enough time has elapsed, draw the next frame
+        if (elapsed > fpsInterval) {
+          // Get ready for next frame by setting then=now, but also adjust for your
+          // specified fpsInterval not being a multiple of RAF's interval (16.7ms)
+          then = now - (elapsed % fpsInterval);
+
+          if (element.readyState === element.HAVE_ENOUGH_DATA) {
+            try {
+              // Firefox v~30.0 gets confused with the video readyState firing an
+              // erroneous HAVE_ENOUGH_DATA just before HAVE_CURRENT_DATA state,
+              // hence keep trying to read it until resolved.
+              context.drawImage(element, 0, 0, width, height);
+            } catch (err) {}
+            tracking.trackCanvasInternal_(canvas, tracker);
+          } 
+        }
       });
     };
 
@@ -266,6 +282,8 @@
       window.cancelAnimationFrame(requestId);
     });
     task.on('run', function() {
+      fpsInterval = 1000 / options.fps;
+      then = Date.now();
       requestAnimationFrame_();
     });
     return task.run();
